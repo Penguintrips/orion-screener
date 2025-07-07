@@ -26,7 +26,7 @@ trading_cryptos = [
 formatted_symbols = [f"{s.lower()}-binanceusdm" for s in trading_cryptos]
 
 # --- Orion Screener API Endpoint ---
-url = "https://orionterminal.com/api/screener"
+url = "https://orionterminal.com/api/screener"  # Replace with actual endpoint
 headers = {"User-Agent": "Mozilla/5.0"}
 
 try:
@@ -39,27 +39,25 @@ except Exception as e:
 # --- FIELD MAPPING ---
 key_map = {
     "11": "price",
-    "26": "ticks_5m",
-    "0":  "change_5m",
-    "6":  "volume_5m",
-    "42": "volatility_15m",
-    "15": "oi_change_1d",
-    "8":  "volume_1h",
-    "22": "vdelta_1h"
+    "1":  "change_1d",  # Change 1d (%)
+    "7":  "oi_change_1d",
+    "9":  "oi_change_8h",
+    "8":  "oi_change_1h",
+    "19": "vdelta_1d",
+    "20": "vdelta_1h"
 }
 
-# --- PARSE DATA ---
+# --- PARSE DATA (Extract 3rd Element When List) ---
 parsed = []
 for symbol, stats in data.items():
     if symbol.lower() in formatted_symbols:
         row = {"symbol": symbol.replace("-binanceusdm", "")}
         for k, v in stats.items():
             if k in key_map:
-                col = key_map[k]
-                if col in ["volume_5m", "volume_1h"] and isinstance(v, list):
-                    row[col] = v[0]
+                if isinstance(v, list) and len(v) >= 3:
+                    row[key_map[k]] = v[2]  # ✅ Use 3rd element (index 2)
                 else:
-                    row[col] = v
+                    row[key_map[k]] = v
         parsed.append(row)
 
 df = pd.DataFrame(parsed)
@@ -67,17 +65,54 @@ df = pd.DataFrame(parsed)
 # --- DISPLAY ---
 if not df.empty:
     ordered_cols = [
-        "symbol", "price", "ticks_5m", "change_5m",
-        "volume_5m", "volatility_15m", "oi_change_1d",
-        "volume_1h", "vdelta_1h"
+        "symbol", "price", "change_1d",
+        "oi_change_1d", "oi_change_8h", "oi_change_1h",
+        "vdelta_1d", "vdelta_1h"
     ]
     df = df[ordered_cols]
-    df["price"] = df["price"].astype(float).round(5)
-    df["change_5m"] = (df["change_5m"].astype(float) * 100).round(2)  # to %
-    df["volume_5m"] = df["volume_5m"].astype(float).round(2)
-    df["volume_1h"] = df["volume_1h"].astype(float).round(2)
-    df["volatility_15m"] = df["volatility_15m"].astype(float).round(3)
 
-    st.dataframe(df, use_container_width=True)
+    # ✅ Formatting + Fixed Decimal Places:
+    df["price"] = df["price"].astype(float).round(4)
+    df["change_1d"] = df["change_1d"].astype(float).round(1)
+    for col in ["oi_change_1d", "oi_change_8h", "oi_change_1h", "vdelta_1d", "vdelta_1h"]:
+        df[col] = df[col].astype(float).round(1)
+
+    # ✅ Convert to Strings to Force Exact Decimal Display
+    df["price"] = df["price"].map("{:.4f}".format)
+    df["change_1d"] = df["change_1d"].map("{:.1f}".format)
+    for col in ["oi_change_1d", "oi_change_8h", "oi_change_1h", "vdelta_1d", "vdelta_1h"]:
+        df[col] = df[col].map("{:.1f}".format)
+
+    # ✅ Column Renaming for UI
+    df.columns = [
+        "Symbol", "Price", "Change 1d (%)",
+        "OI Change 1d (%)", "OI Change 8h (%)", "OI Change 1h (%)",
+        "Vdelta 1d", "Vdelta 1h"
+    ]
+
+    # ✅ Color highlighting function
+    def highlight_positive_red_negative_green(val):
+        try:
+            val = float(val)
+            if val > 0:
+                return 'color: green'
+            elif val < 0:
+                return 'color: red'
+            else:
+                return 'color: black'
+        except:
+            return ''
+
+    # ✅ Apply coloring to % fields
+    styled_df = df.style.applymap(
+        highlight_positive_red_negative_green,
+        subset=[
+            "Change 1d (%)",
+            "OI Change 1d (%)", "OI Change 8h (%)", "OI Change 1h (%)",
+            "Vdelta 1d", "Vdelta 1h"
+        ]
+    )
+
+    st.dataframe(styled_df, use_container_width=True)
 else:
     st.warning("No data available for selected symbols.")
